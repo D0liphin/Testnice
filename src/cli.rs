@@ -1,5 +1,6 @@
 use crate::nix_ext as nix;
 use clap::Parser;
+use owo_colors::OwoColorize;
 use std::str::FromStr;
 
 #[macro_export]
@@ -37,6 +38,17 @@ impl FromStr for NiceLevel {
             Some(nice) => Ok(nice),
             None => Err(format_err!("invalid nice level")),
         }
+    }
+}
+
+/// Color a nice level according to how high priority it is
+pub fn fmt_nice_level(prio: i32) -> String {
+    if prio < 0 {
+        format!("{}", prio.red())
+    } else if prio > 0 {
+        format!("{}", prio.green())
+    } else {
+        format!("{prio}")
     }
 }
 

@@ -24,7 +24,8 @@ fn loop_with_nice(nice: i32, steps: Option<usize>) -> Result<(), String> {
         nix::getnice().map_err(|e| format_err!("\n{e}\n"))?
     );
     loop {
-        print!("{} ", slow_black_box(&nice, steps));
+        let nice = *slow_black_box(&nice, steps);
+        print!("{} ", cli::fmt_nice_level(nice));
         _ = std::io::stdout().flush();
     }
 }

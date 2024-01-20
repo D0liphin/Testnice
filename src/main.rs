@@ -1,7 +1,7 @@
 mod cli;
 mod nix_ext;
 
-use std::thread;
+use std::{io::Write, thread};
 
 use clap::Parser;
 use nix_ext as nix;
@@ -18,20 +18,21 @@ fn slow_black_box<T>(n: &T, steps: Option<usize>) -> &T {
 /// Repeatedly print to stdout the nice level, after completing a computation
 /// with `steps` steps.
 fn loop_with_nice(nice: i32, steps: Option<usize>) -> Result<(), String> {
-    nix::renice(nice).map_err(|e| format_err!("{e}"))?;
+    nix::renice(nice).map_err(|e| format_err!("\n{e}\n"))?;
     println!(
         "Starting thread wih nice level = {}...",
-        nix::getnice().map_err(|e| format_err!("{e}"))?
+        nix::getnice().map_err(|e| format_err!("\n{e}\n"))?
     );
     loop {
-        println!("{}", slow_black_box(&nice, steps));
+        print!("{} ", slow_black_box(&nice, steps));
+        _ = std::io::stdout().flush();
     }
 }
 
 fn loop_with_nice_or_display_err(nice: i32, steps: Option<usize>) {
     match loop_with_nice(nice, steps) {
         Ok(..) => {}
-        Err(e) => println!("{e}"),
+        Err(e) => println!("\n{e}\n"),
     }
 }
 

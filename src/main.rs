@@ -20,7 +20,7 @@ fn slow_black_box<T>(n: &T, steps: Option<usize>) -> &T {
 fn loop_with_nice(nice: i32, steps: Option<usize>) -> Result<(), String> {
     nix::renice(nice).map_err(|e| format_err!("\n{e}\n"))?;
     println!(
-        "Starting thread wih nice level = {}...",
+        "Starting thread with nice level = {}...",
         nix::getnice().map_err(|e| format_err!("\n{e}\n"))?
     );
     loop {

@@ -121,10 +121,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13e3bf6590cbc649f4d1a3eefc9d5d6eb746f5200ffb04e5e142700b8faa56e7"
 
 [[package]]
+name = "linux-sys"
+version = "0.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab34eb1b64b0fa88ffd36205b2b70f5794dae644bce8df5f928acb8759b40a1d"
+
+[[package]]
 name = "nice_level"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "linux-sys",
  "nix",
  "owo-colors",
 ]

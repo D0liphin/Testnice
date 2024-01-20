@@ -17,8 +17,15 @@ fn slow_black_box<T>(n: &T, steps: Option<usize>) -> &T {
 
 /// Repeatedly print to stdout the nice level, after completing a computation
 /// with `steps` steps.
-fn loop_with_nice(nice: i32, steps: Option<usize>) -> Result<(), String> {
+fn loop_with_nice(
+    nice: i32,
+    steps: Option<usize>,
+    display_sched_entity: bool,
+) -> Result<(), String> {
     nix::renice(nice).map_err(|e| format_err!("\n{e}\n"))?;
+    if display_sched_entity {
+        println!("cannot currently display the sched_entity for this process");
+    }
     println!(
         "Starting thread with nice level = {}...",
         nix::getnice().map_err(|e| format_err!("\n{e}\n"))?
@@ -30,29 +37,31 @@ fn loop_with_nice(nice: i32, steps: Option<usize>) -> Result<(), String> {
     }
 }
 
-fn loop_with_nice_or_display_err(nice: i32, steps: Option<usize>) {
-    match loop_with_nice(nice, steps) {
-        Ok(..) => {}
-        Err(e) => println!("\n{e}\n"),
+/// Duplicate a specific task on a number of threads and return all the results
+fn spawn_n_times<F, R>(thread_count: usize, f: F) -> Vec<thread::Result<R>>
+where
+    F: Fn() -> R + Send + Copy + 'static,
+    R: Send + 'static,
+{
+    let mut handles = Vec::with_capacity(thread_count);
+    for _ in 0..thread_count {
+        handles.push(thread::spawn(f));
     }
+    handles.into_iter().map(|handle| handle.join()).collect()
 }
 
 fn main() {
     let args = cli::Cli::parse();
+    let log_work =
+        move || match loop_with_nice(args.nice.get(), args.steps, args.display_sched_entity) {
+            Ok(..) => {}
+            Err(e) => println!("\n{e}\n"),
+        };
+
     match args.flood {
         Some(thread_count) => {
-            let mut handles = Vec::with_capacity(thread_count);
-            for _ in 0..thread_count {
-                handles.push(thread::spawn(move || {
-                    loop_with_nice_or_display_err(args.nice.get(), args.steps);
-                }));
-            }
-            for handle in handles {
-                _ = handle.join();
-            }
+            spawn_n_times(thread_count, log_work);
         }
-        None => {
-            loop_with_nice_or_display_err(args.nice.get(), args.steps);
-        }
+        None => log_work(),
     }
 }

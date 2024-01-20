@@ -62,7 +62,10 @@ pub struct Cli {
     /// The number of times each iteration should spin-loop.
     #[arg(short, long)]
     pub steps: Option<usize>,
-    /// Flood cores
+    /// Spawn this process on this number of different threads
     #[arg(long)]
     pub flood: Option<usize>,
+    /// Show the sched_entity for this process
+    #[arg(long, default_value_t = false)]
+    pub display_sched_entity: bool,
 }

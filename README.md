@@ -8,7 +8,7 @@ churning away in real-time, you will need to flood all your cores. You can
 do this with 
 
 ```
-sudo testnice --flood=<numcores> --nice=-20
+sudo testnice --flood=<numthreads> --nice=-20
 ```
 
 Doing a number that is too high for `--flood` will just crash your PC tbh.

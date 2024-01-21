@@ -13,6 +13,17 @@ sudo testnice --flood=<numthreads> --nice=-20
 
 Doing a number that is too high for `--flood` will just crash your PC tbh.
 
+## System Requirements
+
+You must be running on a valid **Linux** distribution (this is a demonstration
+of linux-specific scheduling after all).
+
+You will also need to install the following libraries which you probably 
+already have. 
+
+- [`ncurses`](https://github.com/gyscos/cursive/wiki/Install-ncurses)
+- `libc`
+
 ## Demonstration
 
 After flooding your CPU with high-priority processes you can point out that

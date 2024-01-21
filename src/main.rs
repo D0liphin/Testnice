@@ -1,9 +1,13 @@
 mod cli;
+mod log;
 mod nix_ext;
+mod tui;
 
 use clap::Parser;
+use log::Log;
 use nix_ext as nix;
-use std::{io::Write, thread};
+use tui::Tui;
+use std::{thread, time::Duration};
 
 #[inline(never)]
 fn slow_black_box<T>(n: &T, steps: Option<usize>) -> &T {
@@ -16,30 +20,20 @@ fn slow_black_box<T>(n: &T, steps: Option<usize>) -> &T {
 
 /// Repeatedly print to stdout the nice level, after completing a computation
 /// with `steps` steps.
-fn loop_with_nice(ni: i32, steps: Option<usize>, display_sched: bool) -> Result<(), String> {
-    nix::renice(ni).map_err(|e| format_err!("\n{e}\n"))?;
-    println!(
-        "Starting thread with nice level = {}...",
-        nix::getnice().map_err(|e| format_err!("\n{e}\n"))?
-    );
+fn loop_with_nice(args: &cli::Cli, logfile: &Log) -> Result<(), String> {
+    let steps = args.steps;
+    nix::renice(args.nice.get()).map_err(|e| format!("{e}"))?;
+    let pid = nix::unistd::Pid::this().as_raw() as i32;
     loop {
-        let nice = *slow_black_box(&ni, steps);
-        if display_sched {
-            print!(
-                "{}\n",
-                nix::Sched::this()
-                    .map_err(|_| format!("error getting sched"))?
-                    .fmt_compact_with_ni(ni)
-            )
-        } else {
-            print!("{} ", cli::fmt_nice_level(nice));
-        }
-        _ = std::io::stdout().flush();
+        let pid = *slow_black_box(&pid, steps);
+        logfile
+            .log_task_completion(pid)
+            .map_err(|e| format!("{e}"))?;
     }
 }
 
 /// Duplicate a specific task on a number of threads and return all the results
-fn spawn_n_times<F, R>(thread_count: usize, f: F) -> Vec<thread::Result<R>>
+fn spawn_many<F, R>(thread_count: usize, f: F) -> Vec<thread::Result<R>>
 where
     F: Fn() -> R + Send + Copy + 'static,
     R: Send + 'static,
@@ -51,18 +45,42 @@ where
     handles.into_iter().map(|handle| handle.join()).collect()
 }
 
+macro_rules! unwrap_or_display_err {
+    ($result:expr) => {
+        match $result {
+            Ok(val) => val,
+            Err(e) => {
+                println!("{}", format_err!("{e}"));
+                return;
+            }
+        }
+    };
+}
+
 fn main() {
-    let args = cli::Cli::parse();
-    let log_work =
-        move || match loop_with_nice(args.nice.get(), args.steps, args.display_sched) {
-            Ok(..) => {}
-            Err(e) => println!("\n{e}\n"),
-        };
+    let args: &'static cli::Cli = Box::leak(Box::new(cli::Cli::parse()));
+    let logfile = unwrap_or_display_err!(Log::create(args.logfile.clone()));
+    let logfile: &'static Log = Box::leak(Box::new(logfile));
+
+    let log_work = move || match loop_with_nice(args, logfile) {
+        Ok(..) => {}
+        Err(e) => println!("\n{}\n", format_err!("{e}")),
+    };
 
     match args.flood {
         Some(thread_count) => {
-            spawn_n_times(thread_count, log_work);
+            spawn_many(thread_count, log_work);
         }
-        None => log_work(),
+        None => {
+            thread::spawn(log_work);
+        },
+    }
+
+    Tui::start(logfile);
+
+    loop {
+        thread::sleep(Duration::from_millis(200));
+        let entries = logfile.read_entries(3);
+        dbg!(&entries);
     }
 }

@@ -1,7 +1,8 @@
 use crate::nix_ext as nix;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use owo_colors::OwoColorize;
-use std::str::FromStr;
+use core::fmt;
+use std::{str::FromStr, path::PathBuf};
 
 #[macro_export]
 macro_rules! format_err {
@@ -52,7 +53,48 @@ pub fn fmt_nice_level(prio: i32) -> String {
     }
 }
 
-#[derive(Parser)]
+// #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+// pub enum SchedField {
+//     /// se.exec_start
+//     #[value(alias("xst"))]
+//     ExecStart,
+//     /// se.vruntime
+//     #[value(alias("vrt"))]
+//     Vruntime,
+//     /// se.sum_exec_runtime
+//     #[value(alias("sxrt"))]
+//     SumExecRuntime,
+//     /// se.nr_migrations
+//     #[value(alias("nmg"))]
+//     NrMigrations,
+//     /// nr_switches 
+//     #[value(alias("nsw"))]
+//     NrSwitches,
+//     /// nr_voluntary_switches
+//     #[value(alias("nvsw"))]
+//     NrVoluntarySwitches,
+//     /// nr_involuntary_switches
+//     #[value(alias("nisw"))]
+//     NrInvoluntarySwitches,
+//     /// prio 
+// }
+
+// impl fmt::Display for SchedField {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         todo!()
+//     }
+// }
+
+
+// impl FromStr for SchedField {
+//     type Err = String;
+
+//     fn from_str(s: &str) -> Result<Self, Self::Err> {
+//         todo!()
+//     }
+// }
+
+#[derive(Parser, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
     /// The nice level being used -- you will need to use `sudo` for lower
@@ -62,10 +104,12 @@ pub struct Cli {
     /// The number of times each iteration should spin-loop.
     #[arg(short, long)]
     pub steps: Option<usize>,
-    /// Spawn this process on this number of different threads
+    /// Spawn this process on this number of different threads. If you are 
+    /// using this option, you probably also want to redirect the output to
+    /// a different file e.g. using --logfile /dev/null
     #[arg(long)]
     pub flood: Option<usize>,
-    /// Show the sched_entity for this process
-    #[arg(long, default_value_t = false)]
-    pub display_sched: bool,
+    /// The log file that should be used
+    #[arg(short, long, default_value = "/tmp/nicelog")]
+    pub logfile: PathBuf,
 }

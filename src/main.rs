@@ -8,7 +8,7 @@ use std::{io::Write, thread};
 #[inline(never)]
 fn slow_black_box<T>(n: &T, steps: Option<usize>) -> &T {
     let mut acc = n;
-    for _ in 0..steps.unwrap_or(10_000_000) {
+    for _ in 0..steps.unwrap_or(100_000_000) {
         acc = std::hint::black_box(n);
     }
     std::hint::black_box(acc)

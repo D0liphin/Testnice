@@ -168,6 +168,8 @@ pub struct Sched {
     pub vruntime: f64,
     /// The number of context switches this program has encountered
     pub nr_switches: u64,
+    /// The number of involuntary context switches this program has encountered
+    pub nr_involuntary_switches: u64,
     /// The weight of this process -- higher = more CPU time
     pub weight: u64,
     /// The scheduling policy
@@ -207,10 +209,11 @@ impl Sched {
     /// A compact display of this `Sched` with a nice value
     pub fn fmt_compact_with_ni(&self, ni: i32) -> String {
         format!(
-            "(ni: {ni}, vrt: {vrt}k, nsw: {nsw}, w: {w}k, pol: {pol})",
+            "(ni: {ni}, w: {w}k, vrt: {vrt}k, nsw: {nsw} (i: {nisw}), pol: {pol})",
             ni = cli::fmt_nice_level(ni),
             vrt = ((self.vruntime / 1000.) as i32).bold(),
             nsw = (self.nr_switches).bold(),
+            nisw = (self.nr_involuntary_switches).bold(),
             w = (self.weight / 1000).bold(),
             pol = (self.policy).bold(),
         )
@@ -259,6 +262,7 @@ impl Sched {
             &sched,
             let vruntime: f64 = "se.vruntime";
             let nr_switches: u64 = "nr_switches";
+            let nr_involuntary_switches: u64 = "nr_involuntary_switches";
             let weight: u64 = "se.load.weight";
             let policy: SchedPolicy = "policy";
         }
@@ -268,6 +272,7 @@ impl Sched {
             nr_switches,
             weight,
             policy,
+            nr_involuntary_switches,
         })
     }
 }

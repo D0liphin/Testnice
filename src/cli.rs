@@ -33,10 +33,10 @@ impl FromStr for NiceLevel {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let inner = s.parse().map_err(|_| format_err!("not an integer"))?;
+        let inner = s.parse().map_err(|_| String::from("not an integer"))?;
         match Self::new(inner) {
             Some(nice) => Ok(nice),
-            None => Err(format_err!("invalid nice level")),
+            None => Err(String::from("invalid nice level")),
         }
     }
 }

@@ -1,10 +1,9 @@
 mod cli;
 mod nix_ext;
 
-use std::{io::Write, thread};
-
 use clap::Parser;
 use nix_ext as nix;
+use std::{io::Write, thread};
 
 #[inline(never)]
 fn slow_black_box<T>(n: &T, steps: Option<usize>) -> &T {
@@ -17,22 +16,24 @@ fn slow_black_box<T>(n: &T, steps: Option<usize>) -> &T {
 
 /// Repeatedly print to stdout the nice level, after completing a computation
 /// with `steps` steps.
-fn loop_with_nice(
-    nice: i32,
-    steps: Option<usize>,
-    display_sched_entity: bool,
-) -> Result<(), String> {
-    nix::renice(nice).map_err(|e| format_err!("\n{e}\n"))?;
-    if display_sched_entity {
-        println!("cannot currently display the sched_entity for this process");
-    }
+fn loop_with_nice(ni: i32, steps: Option<usize>, display_sched: bool) -> Result<(), String> {
+    nix::renice(ni).map_err(|e| format_err!("\n{e}\n"))?;
     println!(
         "Starting thread with nice level = {}...",
         nix::getnice().map_err(|e| format_err!("\n{e}\n"))?
     );
     loop {
-        let nice = *slow_black_box(&nice, steps);
-        print!("{} ", cli::fmt_nice_level(nice));
+        let nice = *slow_black_box(&ni, steps);
+        if display_sched {
+            print!(
+                "{}\n",
+                nix::Sched::this()
+                    .map_err(|_| format!("error getting sched"))?
+                    .fmt_compact_with_ni(ni)
+            )
+        } else {
+            print!("{} ", cli::fmt_nice_level(nice));
+        }
         _ = std::io::stdout().flush();
     }
 }
@@ -53,7 +54,7 @@ where
 fn main() {
     let args = cli::Cli::parse();
     let log_work =
-        move || match loop_with_nice(args.nice.get(), args.steps, args.display_sched_entity) {
+        move || match loop_with_nice(args.nice.get(), args.steps, args.display_sched) {
             Ok(..) => {}
             Err(e) => println!("\n{e}\n"),
         };

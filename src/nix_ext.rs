@@ -1,8 +1,14 @@
-use std::{fmt, error::Error};
+use nom::{
+    self,
+    bytes::complete::{tag, take_until, take_while},
+};
+use owo_colors::OwoColorize;
+use std::{error::Error, fmt, fs, str::FromStr};
 
-use nix::{errno::errno, libc, unistd};
-#[allow(unused)]
-pub use nix::*;
+pub use nix::unistd;
+use nix::{errno::errno, libc};
+
+use crate::cli;
 
 #[derive(Debug)]
 pub enum ReniceError {
@@ -103,4 +109,165 @@ pub fn getnice() -> std::result::Result<i32, GetniceError> {
     }
 
     Ok(prio)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SchedPolicy {
+    /// Represents `SCHED_OTHER`
+    Other,
+    /// Represents `SCHED_BATCH`
+    Batch,
+    /// Represents `SCHED_IDLE`
+    Idle,
+    /// Represents `SCHED_FIFO`
+    Fifo,
+    /// Represents `SCHED_RR`
+    RoundRobin,
+    /// Represents `SCHED_DEADLINE`
+    Deadline,
+}
+
+impl FromStr for SchedPolicy {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        let n: i32 = s.parse().map_err(|_| ())?;
+        let policy = match n {
+            libc::SCHED_OTHER => Self::Other,
+            libc::SCHED_BATCH => Self::Batch,
+            libc::SCHED_IDLE => Self::Idle,
+            libc::SCHED_FIFO => Self::Fifo,
+            libc::SCHED_RR => Self::RoundRobin,
+            libc::SCHED_DEADLINE => Self::Deadline,
+            _ => return Err(()),
+        };
+        Ok(policy)
+    }
+}
+
+impl fmt::Display for SchedPolicy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let staticstr = match self {
+            Self::Other => "oth",
+            Self::Batch => "bch",
+            Self::Idle => "idl",
+            Self::Fifo => "ffo",
+            Self::RoundRobin => "rr",
+            Self::Deadline => "ddl",
+        };
+        write!(f, "{}", staticstr)
+    }
+}
+
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy)]
+pub struct Sched {
+    /// The vruntime of this process -- lower means a higher priority. This is
+    /// the floating-point value that is in the file. Obviously, internally
+    /// this is a `u64`.
+    pub vruntime: f64,
+    /// The number of context switches this program has encountered
+    pub nr_switches: u64,
+    /// The weight of this process -- higher = more CPU time
+    pub weight: u64,
+    /// The scheduling policy
+    pub policy: SchedPolicy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub enum SchedCreationError {
+    /// Could not read the sched file for whatever reason -- probably bad
+    /// permissions
+    FileError,
+    /// The file format has either changed since I last updated this (unlikely)
+    /// or the file format is just not handled correctly (more likely)
+    UnexpectedFileFormat,
+}
+
+impl Sched {
+    /// Parse the value of a given key according to the format of /sched.  
+    /// Order matters here.
+    fn parse_val<'a, Val>(
+        k: &'a str,
+    ) -> impl Fn(&'a str) -> nom::IResult<&str, std::result::Result<Val, <Val as FromStr>::Err>>
+    where
+        Val: FromStr,
+    {
+        move |input| {
+            let (input, _k) = take_until(k)(input)?;
+            let (input, _whitespace) = take_until(":")(input)?;
+            let (input, _colon) = tag(":")(input)?;
+            let (input, v_whitespace) = take_while(|ch: char| ch != '\n')(input)?;
+            let valstr = v_whitespace.trim();
+            let val = str::parse::<Val>(valstr);
+            Ok((input, val))
+        }
+    }
+
+    /// A compact display of this `Sched` with a nice value
+    pub fn fmt_compact_with_ni(&self, ni: i32) -> String {
+        format!(
+            "(ni: {ni}, vrt: {vrt}k, nsw: {nsw}, w: {w}k, pol: {pol})",
+            ni = cli::fmt_nice_level(ni),
+            vrt = ((self.vruntime / 1000.) as i32).bold(),
+            nsw = (self.nr_switches).bold(),
+            w = (self.weight / 1000).bold(),
+            pol = (self.policy).bold(),
+        )
+    }
+
+    /// Construct a [`Sched`] of the current process
+    pub fn this() -> std::result::Result<Self, SchedCreationError> {
+        let this_pid = unistd::Pid::this().as_raw() as i32;
+        Self::of(this_pid)
+    }
+
+    /// Construct a [`Sched`] representing the specified process
+    pub fn of(pid: libc::pid_t) -> std::result::Result<Self, SchedCreationError> {
+        let sched = fs::read_to_string(format!("/proc/{pid}/sched"))
+            .map_err(|_| SchedCreationError::FileError)?;
+
+        macro_rules! map_uff {
+            ($val:expr) => {
+                $val.map_err(|_| SchedCreationError::UnexpectedFileFormat)
+            };
+        }
+
+        macro_rules! parse_val {
+            ($input:expr, $key:expr => $Type:ty) => {{
+                let (input, result) = map_uff!(Self::parse_val($key)($input))?;
+                let val: $Type = map_uff!(result)?;
+                (input, val)
+            }};
+        }
+
+        macro_rules! parse {
+            (
+                $input:expr,
+                $(let $ident:ident: $Type:ty = $key:expr);*
+                $(;)?
+            ) => {
+                let input = $input;
+                $(
+                    #[allow(unused)]
+                    let (input, $ident) = parse_val!(input, $key => $Type);
+                )*
+            };
+        }
+
+        parse! {
+            &sched,
+            let vruntime: f64 = "se.vruntime";
+            let nr_switches: u64 = "nr_switches";
+            let weight: u64 = "se.load.weight";
+            let policy: SchedPolicy = "policy";
+        }
+
+        Ok(Self {
+            vruntime,
+            nr_switches,
+            weight,
+            policy,
+        })
+    }
 }

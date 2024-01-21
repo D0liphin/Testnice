@@ -67,5 +67,5 @@ pub struct Cli {
     pub flood: Option<usize>,
     /// Show the sched_entity for this process
     #[arg(long, default_value_t = false)]
-    pub display_sched_entity: bool,
+    pub display_sched: bool,
 }

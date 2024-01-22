@@ -1,16 +1,6 @@
 use crate::nix_ext as nix;
-use clap::{Parser, ValueEnum};
-use owo_colors::OwoColorize;
-use core::fmt;
-use std::{str::FromStr, path::PathBuf};
-
-#[macro_export]
-macro_rules! format_err {
-    ($($arg:tt)*) => {{
-        use owo_colors::OwoColorize;
-        format!("{} {}", "error:".red().bold(), format_args!($($arg)*))
-    }};
-}
+use clap::{Args, Parser, Subcommand};
+use std::{path::PathBuf, str::FromStr};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NiceLevel(i32);
@@ -42,74 +32,58 @@ impl FromStr for NiceLevel {
     }
 }
 
-/// Color a nice level according to how high priority it is
-pub fn fmt_nice_level(prio: i32) -> String {
-    if prio < 0 {
-        format!("{}", prio.red())
-    } else if prio > 0 {
-        format!("{}", prio.green())
-    } else {
-        format!("{prio}")
-    }
+#[derive(Args, Clone)]
+pub struct FloodCommand {
+    /// The nice level for the parent process
+    #[arg(long)]
+    pub ni: NiceLevel,
+    /// The number of threads to create
+    ///
+    /// # Todo
+    /// Allow users to not specify this and use the main thread instead of
+    /// spawning a single thread
+    #[arg(long, short)]
+    pub thread_count: usize,
+    /// The number of steps in each computation
+    #[arg(long, short)]
+    pub steps: Option<usize>,
+    /// The logfile to be used This defaults to /dev/null
+    #[arg(long, default_value = "/dev/null")]
+    pub logfile: PathBuf,
 }
 
-// #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
-// pub enum SchedField {
-//     /// se.exec_start
-//     #[value(alias("xst"))]
-//     ExecStart,
-//     /// se.vruntime
-//     #[value(alias("vrt"))]
-//     Vruntime,
-//     /// se.sum_exec_runtime
-//     #[value(alias("sxrt"))]
-//     SumExecRuntime,
-//     /// se.nr_migrations
-//     #[value(alias("nmg"))]
-//     NrMigrations,
-//     /// nr_switches 
-//     #[value(alias("nsw"))]
-//     NrSwitches,
-//     /// nr_voluntary_switches
-//     #[value(alias("nvsw"))]
-//     NrVoluntarySwitches,
-//     /// nr_involuntary_switches
-//     #[value(alias("nisw"))]
-//     NrInvoluntarySwitches,
-//     /// prio 
-// }
+#[derive(Args, Clone)]
+pub struct TuiCommand {
+    /// The nice level for the first parent process
+    #[arg(long)]
+    pub ni1: NiceLevel,
+    /// The nice level for the second parent process
+    #[arg(long)]
+    pub ni2: NiceLevel,
+    /// The number of steps in each computation
+    #[arg(long, short)]
+    pub steps: Option<usize>,
+    /// The logfile to be used. This defaults to /tmp/nicelog
+    #[arg(long, default_value = "/tmp/nicelog")]
+    pub logfile: PathBuf,
+    /// The path of this program. We need this so that we can start
+    /// subprocesses. By default this is /usr/local/bin/testnice
+    #[arg(long, default_value = "/usr/local/bin/testnice")]
+    pub this: PathBuf,
+}
 
-// impl fmt::Display for SchedField {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         todo!()
-//     }
-// }
-
-
-// impl FromStr for SchedField {
-//     type Err = String;
-
-//     fn from_str(s: &str) -> Result<Self, Self::Err> {
-//         todo!()
-//     }
-// }
+#[derive(Subcommand, Clone)]
+pub enum Command {
+    /// Flood CPU with work -- this actually has quite different effects on
+    /// /proc/[pid]/sched depending on the number of threads we spawn
+    Flood(FloodCommand),
+    /// Open the TUI that allows you to inspect some processes
+    Tui(TuiCommand),
+}
 
 #[derive(Parser, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
-    /// The nice level being used -- you will need to use `sudo` for lower
-    /// values.
-    #[arg(short, long)]
-    pub nice: NiceLevel,
-    /// The number of times each iteration should spin-loop.
-    #[arg(short, long)]
-    pub steps: Option<usize>,
-    /// Spawn this process on this number of different threads. If you are 
-    /// using this option, you probably also want to redirect the output to
-    /// a different file e.g. using --logfile /dev/null
-    #[arg(long)]
-    pub flood: Option<usize>,
-    /// The log file that should be used
-    #[arg(short, long, default_value = "/tmp/nicelog")]
-    pub logfile: PathBuf,
+    #[command(subcommand)]
+    pub command: Command,
 }

@@ -2,13 +2,15 @@ use nom::{
     self,
     bytes::complete::{tag, take_until, take_while},
 };
-use owo_colors::OwoColorize;
+use ratatui::{
+    style::{Color as RatatuiColor, Modifier, Style},
+    text::{Line, Span},
+    widgets::Paragraph,
+};
 use std::{error::Error, fmt, fs, str::FromStr};
 
 pub use nix::unistd;
 use nix::{errno::errno, libc};
-
-use crate::cli;
 
 #[derive(Debug)]
 pub enum ReniceError {
@@ -74,7 +76,7 @@ pub fn renice(new_prio: i32) -> std::result::Result<(), ReniceError> {
     Ok(())
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GetniceError {
     /// Equivalent to `EPERM`
     Permission,
@@ -90,14 +92,12 @@ impl fmt::Display for GetniceError {
 
 impl Error for GetniceError {}
 
-/// Get the exact nice level of the running process
-pub fn getnice() -> std::result::Result<i32, GetniceError> {
-    let pid = unistd::Pid::this();
-
+/// Get the exact nice level of the specified process
+pub fn getnice(pid: i32) -> std::result::Result<i32, GetniceError> {
     unsafe {
         *libc::__errno_location() = 0;
     }
-    let prio = unsafe { libc::getpriority(libc::PRIO_PROCESS, pid.as_raw() as _) };
+    let prio = unsafe { libc::getpriority(libc::PRIO_PROCESS, pid as u32) };
 
     let errno = errno();
     if prio == -1 && errno != 0 {
@@ -125,6 +125,14 @@ pub enum SchedPolicy {
     RoundRobin,
     /// Represents `SCHED_DEADLINE`
     Deadline,
+    /// An unknown policy
+    Unknown,
+}
+
+impl Default for SchedPolicy {
+    fn default() -> Self {
+        Self::Other
+    }
 }
 
 impl FromStr for SchedPolicy {
@@ -139,7 +147,7 @@ impl FromStr for SchedPolicy {
             libc::SCHED_FIFO => Self::Fifo,
             libc::SCHED_RR => Self::RoundRobin,
             libc::SCHED_DEADLINE => Self::Deadline,
-            _ => return Err(()),
+            _ => Self::Unknown,
         };
         Ok(policy)
     }
@@ -148,35 +156,82 @@ impl FromStr for SchedPolicy {
 impl fmt::Display for SchedPolicy {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let staticstr = match self {
-            Self::Other => "oth",
-            Self::Batch => "bch",
-            Self::Idle => "idl",
-            Self::Fifo => "ffo",
-            Self::RoundRobin => "rr",
-            Self::Deadline => "ddl",
+            Self::Other => "SCHED_OTHER",
+            Self::Batch => "SCHED_BATCH",
+            Self::Idle => "SCHED_IDLE",
+            Self::Fifo => "SCHED_FIFO",
+            Self::RoundRobin => "SCHED_RR",
+            Self::Deadline => "SCHED_DEADLINE",
+            Self::Unknown => "unknown schedule",
         };
         write!(f, "{}", staticstr)
     }
 }
 
 #[non_exhaustive]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Sched {
-    /// The vruntime of this process -- lower means a higher priority. This is
-    /// the floating-point value that is in the file. Obviously, internally
-    /// this is a `u64`.
+    /// `se.exec_start`
+    pub exec_start: f64,
+    /// `se.vruntime`
     pub vruntime: f64,
-    /// The number of context switches this program has encountered
+    /// `se.sum_exec_runtime`
+    pub sum_exec_runtime: f64,
+    /// `se.nr_migrations`
+    pub nr_migrations: u64,
+    /// `nr_switches`
     pub nr_switches: u64,
-    /// The number of involuntary context switches this program has encountered
+    /// `nr_voluntary_switches`
+    pub nr_voluntary_switches: u64,
+    /// `nr_involuntary_switches`
     pub nr_involuntary_switches: u64,
-    /// The weight of this process -- higher = more CPU time
-    pub weight: u64,
-    /// The scheduling policy
+    /// `se.load.weight`
+    pub load_weight: u64,
+    /// `se.avg.load_sum`
+    pub avg_load_sum: u64,
+    /// `se.avg.runnable_sum`
+    pub avg_runnable_sum: u64,
+    /// `se.avg.util_sum`
+    pub avg_util_sum: u64,
+    /// `se.avg.load_avg`
+    pub avg_load_avg: u64,
+    /// `se.avg.runnable_avg`
+    pub avg_runnable_avg: u64,
+    /// `se.avg.util_avg`
+    pub avg_util_avg: u64,
+    /// `se.avg.last_update_time`
+    pub avg_last_update_time: u64,
+    /// `se.avg.util_est.ewma`
+    pub avg_util_est_ewma: u64,
+    /// `se.avg.util_est.enqueued`
+    pub avg_util_est_enqueued: u64,
+    /// `uclamp.min`
+    pub uclamp_min: u64,
+    /// `uclamp.max`
+    pub uclamp_max: u64,
+    /// `effective uclamp.min`
+    pub effective_uclamp_min: u64,
+    /// `effective uclamp.max`
+    pub effective_uclamp_max: u64,
+    /// `policy`
     pub policy: SchedPolicy,
+    /// `prio`
+    pub prio: u64,
+    /// `clock-delta`
+    pub clock_delta: u64,
+    /// `mm->numa_scan_seq`
+    pub numa_scan_seq: u64,
+    /// `numa_pages_migrated`
+    pub numa_pages_migrated: u64,
+    /// `numa_preferred_nid`
+    pub numa_preferred_nid: i64,
+    /// `total_numa_faults`
+    pub total_numa_faults: u64,
+    /// The nice value of this process -- this is not normally in `Sched`
+    pub ni: i32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum SchedCreationError {
     /// Could not read the sched file for whatever reason -- probably bad
     /// permissions
@@ -184,6 +239,27 @@ pub enum SchedCreationError {
     /// The file format has either changed since I last updated this (unlikely)
     /// or the file format is just not handled correctly (more likely)
     UnexpectedFileFormat,
+    /// Could not load the nice value
+    GetniceError(GetniceError),
+}
+
+impl From<GetniceError> for SchedCreationError {
+    fn from(value: GetniceError) -> Self {
+        Self::GetniceError(value)
+    }
+}
+
+impl fmt::Display for SchedCreationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Self::FileError => "could not read sched file",
+            Self::UnexpectedFileFormat => "sched file contained unexpected format",
+            Self::GetniceError(err) => match err {
+                GetniceError::Permission => "user lacks permissions to /sched info",
+            },
+        };
+        write!(f, "{s}")
+    }
 }
 
 impl Sched {
@@ -206,20 +282,8 @@ impl Sched {
         }
     }
 
-    /// A compact display of this `Sched` with a nice value
-    pub fn fmt_compact_with_ni(&self, ni: i32) -> String {
-        format!(
-            "(ni: {ni}, w: {w}k, vrt: {vrt}k, nsw: {nsw} (i: {nisw}), pol: {pol})",
-            ni = cli::fmt_nice_level(ni),
-            vrt = ((self.vruntime / 1000.) as i32).bold(),
-            nsw = (self.nr_switches).bold(),
-            nisw = (self.nr_involuntary_switches).bold(),
-            w = (self.weight / 1000).bold(),
-            pol = (self.policy).bold(),
-        )
-    }
-
     /// Construct a [`Sched`] of the current process
+    #[allow(unused)]
     pub fn this() -> std::result::Result<Self, SchedCreationError> {
         let this_pid = unistd::Pid::this().as_raw() as i32;
         Self::of(this_pid)
@@ -249,30 +313,122 @@ impl Sched {
                 $input:expr,
                 $(let $ident:ident: $Type:ty = $key:expr);*
                 $(;)?
-            ) => {
+            ) => {{
                 let input = $input;
                 $(
                     #[allow(unused)]
                     let (input, $ident) = parse_val!(input, $key => $Type);
                 )*
+                Self {
+                    $($ident),*,
+                    ni: getnice(pid)?,
+                }
+            }};
+        }
+
+        Ok(parse! {
+            &sched,
+            let exec_start: f64 = "se.exec_start";
+            let vruntime: f64 = "se.vruntime";
+            let sum_exec_runtime: f64 = "se.sum_exec_runtime";
+            let nr_migrations: u64 = "se.nr_migrations";
+            let nr_switches: u64 = "nr_switches";
+            let nr_voluntary_switches: u64 = "nr_voluntary_switches";
+            let nr_involuntary_switches: u64 = "nr_involuntary_switches";
+            let load_weight: u64 = "se.load.weight";
+            let avg_load_sum: u64 = "se.avg.load_sum";
+            let avg_runnable_sum: u64 = "se.avg.runnable_sum";
+            let avg_util_sum: u64 = "se.avg.util_sum";
+            let avg_load_avg: u64 = "se.avg.load_avg";
+            let avg_runnable_avg: u64 = "se.avg.runnable_avg";
+            let avg_util_avg: u64 = "se.avg.util_avg";
+            let avg_last_update_time: u64 = "se.avg.last_update_time";
+            let avg_util_est_ewma: u64 = "se.avg.util_est.ewma";
+            let avg_util_est_enqueued: u64 = "se.avg.util_est.enqueued";
+            let uclamp_min: u64 = "uclamp.min";
+            let uclamp_max: u64 = "uclamp.max";
+            let effective_uclamp_min: u64 = "effective uclamp.min";
+            let effective_uclamp_max: u64 = "effective uclamp.max";
+            let policy: SchedPolicy = "policy";
+            let prio: u64 = "prio";
+            let clock_delta: u64 = "clock-delta";
+            let numa_scan_seq: u64 = "mm->numa_scan_seq";
+            let numa_pages_migrated: u64 = "numa_pages_migrated";
+            let numa_preferred_nid: i64 = "numa_preferred_nid";
+            let total_numa_faults: u64 = "total_numa_faults";
+        })
+    }
+
+    /// Convert this to a [`Paragraph`] widget
+    pub fn as_para(&self, width: usize) -> Paragraph<'static> {
+        fn line(
+            width: usize,
+            field_name: &str,
+            val: impl fmt::Display,
+            color: RatatuiColor,
+        ) -> Line {
+            let val_str = format!("{val}");
+            let min_width = val_str.len() + field_name.len();
+            let whitespace = if min_width < width {
+                width - min_width
+            } else {
+                1
+            };
+
+            Line::from(vec![
+                Span::styled(field_name, Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw(" ".repeat(whitespace)),
+                Span::styled(val_str, Style::default().fg(color)),
+            ])
+        }
+
+        macro_rules! line {
+            ($field:expr, $val:expr, $color:ident) => {
+                line(width, $field, $val, RatatuiColor::$color)
+            };
+            ($field:expr, $val:expr) => {
+                line(width, $field, $val, RatatuiColor::default())
             };
         }
 
-        parse! {
-            &sched,
-            let vruntime: f64 = "se.vruntime";
-            let nr_switches: u64 = "nr_switches";
-            let nr_involuntary_switches: u64 = "nr_involuntary_switches";
-            let weight: u64 = "se.load.weight";
-            let policy: SchedPolicy = "policy";
-        }
-
-        Ok(Self {
-            vruntime,
-            nr_switches,
-            weight,
-            policy,
-            nr_involuntary_switches,
-        })
+        Paragraph::new(vec![
+            line!("ni", self.ni, LightBlue),
+            line!("se.exec_start", self.exec_start, Red),
+            line!("se.vruntime", self.vruntime, Red),
+            line!("se.sum_exec_runtime", self.sum_exec_runtime, Red),
+            line!("se.nr_migrations", self.nr_migrations, Green),
+            line!("nr_switches", self.nr_switches, Green),
+            line!("nr_voluntary_switches", self.nr_voluntary_switches, Green),
+            line!(
+                "nr_involuntary_switches",
+                self.nr_involuntary_switches,
+                Green
+            ),
+            line!("se.load.weight", self.load_weight, Green),
+            line!("se.avg.load_sum", self.avg_load_sum, Green),
+            line!("se.avg.runnable_sum", self.avg_runnable_sum, Green),
+            line!("se.avg.util_sum", self.avg_util_sum, Green),
+            line!("se.avg.load_avg", self.avg_load_avg, Green),
+            line!("se.avg.runnable_avg", self.avg_runnable_avg, Green),
+            line!("se.avg.util_avg", self.avg_util_avg, Green),
+            line!("se.avg.last_update_time", self.avg_last_update_time, Green),
+            line!("se.avg.util_est.ewma", self.avg_util_est_ewma, Green),
+            line!(
+                "se.avg.util_est.enqueued",
+                self.avg_util_est_enqueued,
+                Green
+            ),
+            line!("uclamp.min", self.uclamp_min, Green),
+            line!("uclamp.max", self.uclamp_max, Green),
+            line!("effective uclamp.min", self.effective_uclamp_min, Green),
+            line!("effective uclamp.max", self.effective_uclamp_max, Green),
+            line!("policy", self.policy),
+            line!("prio", self.prio, Green),
+            line!("clock-delta", self.clock_delta, Green),
+            line!("mm->numa_scan_seq", self.numa_scan_seq, Green),
+            line!("numa_pages_migrated", self.numa_pages_migrated, Green),
+            line!("numa_preferred_nid", self.numa_preferred_nid, LightBlue),
+            line!("total_numa_faults", self.total_numa_faults, Green),
+        ])
     }
 }

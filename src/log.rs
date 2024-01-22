@@ -7,7 +7,7 @@ use std::{
     cmp,
     collections::VecDeque,
     fmt,
-    fs::{self, File, OpenOptions},
+    fs::{File, OpenOptions},
     io::{self, Read, Seek, SeekFrom, Write},
     path::PathBuf,
     str::FromStr,
@@ -45,13 +45,14 @@ impl fmt::Display for LogError {
 }
 
 /// A shared log file that synchronizes writes
+#[derive(Debug, Clone)]
 pub struct Log {
     path: PathBuf,
 }
 
 #[derive(Clone, Debug)]
 pub struct LogEntry {
-    pid: i32,
+    pub pid: i32,
 }
 
 impl LogEntry {
@@ -126,23 +127,39 @@ impl Log {
             out: &mut VecDeque<LogEntry>,
             upto: usize,
         ) -> Result<&'a [u8], LogError> {
+            if buf == [] {
+                return Ok(&[]);
+            }
+
             let input = buf;
             let (input, entry_str) = take_till(|b| b == Log::ENTRY_DELIM)(input)?;
-            let (input, _) = tag(b"|")(input)?;
+            let (input, _) = tag(&[Log::ENTRY_DELIM])(input)?;
             let rem = &buf[0..=entry_str.len()];
 
-            let mut count = 0;
+            let mut chunk = vec![];
             let mut input = input;
-            while let Ok((newinput, entry_str)) =
-                take_till::<_, &[u8], NomError<&[u8]>>(|b| b == Log::ENTRY_DELIM)(input)
-            {
-                // ... || reached eof
-                if count >= upto || entry_str == b"" {
+            loop {
+                let (newinput, entry_str) = take_till(|b| b == Log::ENTRY_DELIM)(input)?;
+                input = newinput;
+
+                if let Ok((newinput, _)) =
+                    tag::<_, &[u8], NomError<&[u8]>>(&[Log::ENTRY_DELIM])(input)
+                {
+                    input = newinput;
+                } else {
+                    // EOF. We do not care about the case where the input starts
+                    // with 0 whitespace and then the delimiter because we handle
+                    // that with rem
                     break;
                 }
-                input = newinput;
-                out.push_front(LogEntry::from_bytes(entry_str)?);
-                count += 1;
+                if chunk.len() >= upto {
+                    break;
+                }
+
+                chunk.push(LogEntry::from_bytes(entry_str)?);
+            }
+            for entry in chunk.into_iter().rev() {
+                out.push_front(entry);
             }
 
             Ok(rem)

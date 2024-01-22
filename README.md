@@ -1,17 +1,20 @@
 # `testnice`
 
-You can use this by building the project (preferably in debug mode) and then 
-using the builtin CLI.
+This is **currently not usable**. It is under incredible construction and I am
+going to the gym rn. I'll fix it all when I get back. 
+
+You will need to `cargo build` this. 
 
 For this to have a noticeable effect to allow students to view the scheduler
-churning away in real-time, you will need to flood all your cores. You can 
-do this with 
+churning away in real-time, you will need to flood your CPU with garbage work. 
+You can do this with 
 
 ```
-sudo testnice --flood=<numthreads> --nice=-20
+sudo testnice flood <numthreads> --ni=-20
 ```
 
-Doing a number that is too high for `--flood` will just crash your PC tbh.
+Doing a number that is too high for `--flood` will just freeze your PC. Don't 
+do more than the number of cores you have as a start.
 
 ## System Requirements
 
@@ -26,33 +29,20 @@ already have.
 
 ## Demonstration
 
-After flooding your CPU with high-priority processes you can point out that
+This has been considerably updated and now uses a TUI to compare two processes
+with different nice levels. 
 
-- operations are slow *and then fast* as opposed to just consistently slower.
-  This is because they are running full-throttle and then have to wait a
-  bit.
+By default, all `testnice` instances use the same logfile.
 
-Then open another terminal and run
+1. In a separate terminal
 
 ```
-testnice --nice=19 & sudo testnice --nice=-20 
+sudo testnice flood --thread-count=<THREAD_COUNT>
 ```
 
-This should show the process with nice level `19` gets scheduled less 
-frequently, but while they are both running, they exeute at the same 'speed'.
+2. Then in the terminal that you are working from 
 
-## Displaying `sched_entity`
+```
+sudo testnice tui --ni1=-20 --ni2=19
+```
 
-We cannot show the exact `sched_entity` but we are able to acquire lots of 
-interesting information about the schedule. This demonstration comes with a 
-builtin way of displaying the nice level as well as
-
-- `vrt` (`se.vruntime`)
-- `nsw` (`nr_switches`)
-- `w` (`se.load.weight`)
-- `pol` (`policy`)
-    - `oth` (`SCHED_OTHER`)
-    - `ffo` (`SCHED_FIFO`)
-    - etc.
-
-Just pass `--display-sched`.

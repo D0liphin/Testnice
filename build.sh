@@ -1,1 +1,1 @@
-cargo build && sudo mv ./target/debug/nice_level /usr/local/bin/testnice
+cargo build --release && sudo mv ./target/release/nice_level /usr/local/bin/testnice

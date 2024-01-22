@@ -129,6 +129,11 @@ impl Tui {
             .collect::<Vec<_>>();
 
         terminal.draw(|f| {
+            if f.size().width < 6 || f.size().height < 10 {
+                return;
+            }
+
+            // draw the short-log section 
             let logs_block = Block::default().borders(Borders::all()).title("Short-Log");
             let logs_block_rect = {
                 let mut rect = f.size();
@@ -141,6 +146,7 @@ impl Tui {
             let logs_para_rect = logs_block_rect.inner(&Margin::new(1, 1));
             f.render_widget(logs_para, logs_para_rect);
 
+            // draw the processes
             let fsize = f.size();
             let build_sched_widget = |pid, sched: Sched| {
                 let mut rect = logs_block_rect;
@@ -168,6 +174,7 @@ impl Tui {
             let (sched2_para, sched2_block, mut sched2_block_rect) =
                 build_sched_widget(self.pid2, self.sched2.val);
             sched2_block_rect.x += sched2_block_rect.width;
+            // fill extra space to the right if it exists
             if fsize.width % 2 == 1 {
                 sched2_block_rect.width += 1;
             }
